@@ -1,2 +1,2 @@
-# Card-Store
-Card Store is a simple Progressive Web App (PWA) that securely stores all your cards in a virtual vault.
+# Materialize PWA Template
+An HTML5 template built using [Materialize](https://materializecss.com/ "Materialize") that follows all PWA standards.
