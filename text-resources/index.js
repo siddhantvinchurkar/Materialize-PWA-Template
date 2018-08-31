@@ -1,16 +1,36 @@
 /* Internal Logic Script */
 
-// Global variables
+/* Global variables */
 var floatingActionButtonElements;
 var floatingActionButtonInstances;
 var tooltipElements;
 var tooltipInstances;
 var modalElements;
 var modalInstances;
+var formSelectElements;
+var formSelectInstances;
 
 var otpFlag = false;
+var ctpFlag = false;
+var ctnFlag = true;
+var homeFlag = false;
 
 var user;
+var selectedCountryCode;
+var countryPhoneCodes;
+
+/* Global Functions */
+
+// Asynchronous HTTP GET Request Function
+function httpGetAsync(theUrl, callback){
+	var xmlHttp = new XMLHttpRequest();
+	xmlHttp.onreadystatechange = function(){ 
+		if(xmlHttp.readyState == 4 && xmlHttp.status == 200)
+			callback(xmlHttp.responseText);
+	}
+	xmlHttp.open("GET", theUrl, true);
+	xmlHttp.send(null);
+}
 
 // Handle page onload events
 window.onload = function(){
@@ -20,6 +40,59 @@ window.onload = function(){
 	// Register Service Worker
 
 	if ("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js");}
+
+	// Get country data (block sign in modal while data loads)
+	blockSignInModal();
+	document.getElementById("signIn").innerHTML = "Please wait...";
+	httpGetAsync("text-resources/country-code-to-phone-code.json", ctp);
+	httpGetAsync("text-resources/country-code-to-country-name.json", ctn);
+
+	// Populate country list
+	function ctp(data){
+		// Unblock sign in modal
+		if(ctn){
+			unblockSignInModal();
+			document.getElementById("signIn").innerHTML = "Send OTP";
+		}
+		// Convert data to JSON Object
+		data = JSON.parse(data);
+		countryPhoneCodes = data;
+		ctpFlag = true;
+	}
+
+	function ctn(data){
+		// Unblock sign in modal
+		if(ctp){
+			unblockSignInModal();
+			document.getElementById("signIn").innerHTML = "Send OTP";
+		}
+		// Convert data to JSON Object
+		data = JSON.parse(data);
+		for(var cc in data){
+			// Handle absurd/home countries
+			switch(cc){
+				case 'BV': cc = 'SZ'; break;
+				case 'BQ': cc = 'SZ'; break;
+				case 'RE': cc = 'SZ'; break;
+				case 'GP': cc = 'SZ'; break;
+				case 'GF': cc = 'SZ'; break;
+				case 'HM': cc = 'SZ'; break;
+				case 'SJ': cc = 'SZ'; break;
+				case 'PM': cc = 'SZ'; break;
+				case 'IO': cc = 'SZ'; break;
+				case 'XK': cc = 'SZ'; break;
+				case 'UM': cc = 'SZ'; break;
+				case 'IN': document.getElementById("countries").innerHTML += '<option value="' + cc + '" data-icon="https://www.countryflags.io/' + cc + '/flat/32.png" selected>' + data[cc] + '</option>';
+					   homeFlag = true;
+					   break;
+				default: break;
+			}
+			if(!homeFlag)document.getElementById("countries").innerHTML += '<option value="' + cc + '" data-icon="https://www.countryflags.io/' + cc + '/flat/32.png">' + data[cc] + '</option>';
+			else homeFlag = false;
+		}
+		initializeFormSelectElements();
+		ctnFlag = true;
+	}
 
 	// Set copyright text year
 	document.getElementById("copyrightYear").innerHTML = new Date().getFullYear();
@@ -37,6 +110,12 @@ window.onload = function(){
 	// Initialize Modals
 	modalElements = document.querySelectorAll('.modal');
 	modalInstances = M.Modal.init(modalElements);
+
+	// Initialize form selects after the country list is populated
+	function initializeFormSelectElements(){
+		formSelectElements = document.querySelectorAll('select');
+		formSelectInstances = M.FormSelect.init(formSelectElements);
+	}
 
 	/* Initialize Firebase */
 
@@ -62,13 +141,14 @@ window.onload = function(){
 		}
 	});
 
-	// Send SMS for verification
+	// Send SMS for verification and then verify the OTP
 
 	document.getElementById("signIn").onclick= function(){
 
 		if(otpFlag){
 			otpFlag = false;
 			blockSignInModal();
+			document.getElementById("signIn").innerHTML = "Verifying OTP...";
 			confirmationResult.confirm(document.getElementById("phoneNumber").value).then(function (result) {
 				// User signed in successfully.
 					user = result.user;
@@ -82,7 +162,9 @@ window.onload = function(){
 
 		else{
 			blockSignInModal();
-			firebase.auth().signInWithPhoneNumber(document.getElementById("phoneNumber").value, window.recaptchaVerifier).then(function(confirmationResult){
+			document.getElementById("signIn").innerHTML = "Sending OTP...";
+			console.log("%cSending SMS to " + getPhoneCodeFromCountryCode(selectedCountryCode) + document.getElementById("phoneNumber").value, "background-color:#222222; color:#FFD700;");
+			firebase.auth().signInWithPhoneNumber(getPhoneCodeFromCountryCode(selectedCountryCode) + document.getElementById("phoneNumber").value, window.recaptchaVerifier).then(function(confirmationResult){
 				// SMS sent. Prompt user to type the code from the message, then sign the user in with confirmationResult.confirm(code).
 				window.confirmationResult = confirmationResult;
 				unblockSignInModal();
@@ -107,6 +189,7 @@ window.onload = function(){
 		document.getElementById("username").href = "";
 		document.getElementById("landingContents").style.display = "none";
 		document.getElementById("pageContents").style.display = "block";
+		console.log("%cSuccessfully signed in!", "background-color:#222222; color:#BADA55;");
 	}
 
 	// Callback after successful sign out
@@ -135,10 +218,23 @@ window.onload = function(){
 		document.getElementById("spinner").style.display = "none";
 	}
 
+	// Method to return country phone code string
+
+	function getPhoneCodeFromCountryCode(countryCode){
+		if(ctpFlag && ctnFlag){
+			if(countryPhoneCodes[countryCode].charAt(0) != '+') return '+' + countryPhoneCodes[countryCode];
+			else return countryPhoneCodes[countryCode];
+		}
+		else return null;
+	}
+
 	/* Other Events */
 
 	// Handle mouseover events for floating action buttons
 	document.getElementById("addNewCard").onmouseover = function(){document.getElementById("addNewCard").classList.add("pulse");}
 	document.getElementById("addNewCard").onmouseout = function(){document.getElementById("addNewCard").classList.remove("pulse");}
+
+	// Handle change event for country list
+	document.getElementById("countries").onchange = function(){selectedCountryCode = document.getElementById("countries").value;}
 
 }
